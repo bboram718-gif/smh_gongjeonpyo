@@ -477,14 +477,21 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 
   /* ── Excel-like task grid ── */
   .grid-head{
-    display:grid; grid-template-columns:1.4fr 1fr 84px 84px 24px;
+    display:grid; grid-template-columns:1.4fr 1fr 84px 84px 44px 24px;
     gap:0; font-size:11px; color:var(--sub); font-weight:500;
     background:#f2f0ea; border:1px solid var(--line-strong); border-bottom:none;
   }
   .grid-head > div{padding:6px 8px; border-right:1px solid var(--line);}
   .grid-head > div:last-child{border-right:none;}
   .grid-body{border:1px solid var(--line-strong); border-top:none;}
-  .grid-row{display:grid; grid-template-columns:1.4fr 1fr 84px 84px 24px; gap:0;}
+  .grid-row{display:grid; grid-template-columns:1.4fr 1fr 84px 84px 44px 24px; gap:0;}
+  .grid-row .rowmove{display:flex; flex-direction:column; height:32px;}
+  .grid-row .rowmove button{
+    flex:1; border:none; background:transparent; cursor:pointer;
+    color:#a9a396; font-size:9px; line-height:1; padding:0; font-family:inherit;
+  }
+  .grid-row .rowmove button:hover{color:var(--ink); background:#f2f0ea;}
+  .grid-row .rowmove button:disabled{color:#ddd; cursor:default; background:transparent;}
   .grid-row:not(:last-child){border-bottom:1px solid var(--line);}
   .grid-row > .cell{border-right:1px solid var(--line); position:relative;}
   .grid-row > .cell:last-child{border-right:none;}
@@ -624,7 +631,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     <div class="divider"></div>
     <div class="sec-title">공정 목록</div>
     <div class="grid-head">
-      <div>공정명</div><div>바 표시</div><div>시작</div><div>종료</div><div></div>
+      <div>공정명</div><div>바 표시</div><div>시작</div><div>종료</div><div></div><div></div>
     </div>
     <div class="grid-body" id="taskList"></div>
     <button class="grid-add" onclick="addTask()">+ 공정 추가</button>
@@ -635,6 +642,12 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
       <label>특이사항</label>
       <textarea id="notes" placeholder="에어컨 설치협의 · 노출콘센트 가능 ..." autocomplete="off"></textarea>
     </div>
+
+    <div class="divider"></div>
+    <button class="btn" onclick="saveWork()">작업 파일 저장 (.json)</button>
+    <button class="btn" onclick="document.getElementById('loadFile').click()">저장한 파일 불러오기</button>
+    <input id="loadFile" type="file" accept=".json,application/json" style="display:none" onchange="loadWork(event)">
+    <div class="hint">작성 중인 내용을 파일로 저장하고, 나중에 다시 불러와 이어서 작업할 수 있습니다.</div>
 
     <div class="divider"></div>
     <button class="btn primary" onclick="exportPDF()">PDF로 저장 (A4 가로)</button>
@@ -698,10 +711,14 @@ function renderTaskInputs(){
     const div = document.createElement('div');
     div.className = 'grid-row';
     div.innerHTML =
-      '<div class="cell"><input value="'+esc(t.label)+'" oninput="upd('+i+',\'label\',this.value)" placeholder="목공사"></div>'+
-      '<div class="cell"><input value="'+esc(t.bar)+'" oninput="upd('+i+',\'bar\',this.value)" placeholder="(동일)"></div>'+
+      '<div class="cell"><input value="'+esc(t.label)+'" oninput="upd('+i+',\'label\',this.value)" onkeydown="taskKey(event,'+i+')" placeholder="목공사"></div>'+
+      '<div class="cell"><input value="'+esc(t.bar)+'" oninput="upd('+i+',\'bar\',this.value)" onkeydown="taskKey(event,'+i+')" placeholder="(동일)"></div>'+
       '<div class="cell"><select onchange="updStart('+i+',this.value)">'+dateOptions(t.start,null)+'</select></div>'+
       '<div class="cell"><select onchange="upd('+i+',\'end\',this.value)">'+dateOptions(t.end,t.start)+'</select></div>'+
+      '<div class="cell"><div class="rowmove">'+
+        '<button onclick="moveTask('+i+',-1)" title="위로"'+(i===0?' disabled':'')+'>▲</button>'+
+        '<button onclick="moveTask('+i+',1)" title="아래로"'+(i===tasks.length-1?' disabled':'')+'>▼</button>'+
+      '</div></div>'+
       '<div class="cell"><button class="rowdel" onclick="delTask('+i+')" title="삭제">×</button></div>';
     wrap.appendChild(div);
   });
@@ -718,6 +735,60 @@ function addTask(){
   const sd = document.getElementById('startDate').value;
   tasks.push({label:'', bar:'', start:sd, end:sd});
   renderTaskInputs(); render();
+}
+function taskKey(e,i){
+  if(e.key!=='Enter') return;
+  e.preventDefault();
+  const sd = document.getElementById('startDate').value;
+  tasks.splice(i+1, 0, {label:'', bar:'', start:sd, end:sd});
+  renderTaskInputs(); render();
+  // focus the label input of the newly created row
+  const rows = document.querySelectorAll('#taskList .grid-row');
+  if(rows[i+1]){ const inp = rows[i+1].querySelector('input'); if(inp) inp.focus(); }
+}
+function moveTask(i,dir){
+  const j = i + dir;
+  if(j<0 || j>=tasks.length) return;
+  const tmp = tasks[i]; tasks[i] = tasks[j]; tasks[j] = tmp;
+  renderTaskInputs(); render();
+}
+function saveWork(){
+  const data = {
+    siteName: document.getElementById('siteName').value,
+    siteSub:  document.getElementById('siteSub').value,
+    startDate:document.getElementById('startDate').value,
+    endDate:  document.getElementById('endDate').value,
+    notes:    document.getElementById('notes').value,
+    tasks:    tasks
+  };
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const name = (data.siteName||'공정표').replace(/[\\/:*?"<>|]/g,'_');
+  const d = new Date();
+  const ymd = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+  a.href = url; a.download = name+'_'+ymd+'.json';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function loadWork(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    try{
+      const data = JSON.parse(ev.target.result);
+      document.getElementById('siteName').value  = data.siteName  || '';
+      document.getElementById('siteSub').value   = data.siteSub   || '';
+      document.getElementById('startDate').value = data.startDate || '';
+      document.getElementById('endDate').value   = data.endDate   || '';
+      document.getElementById('notes').value     = data.notes     || '';
+      tasks = Array.isArray(data.tasks) ? data.tasks : [];
+      clampTasks(); renderTaskInputs(); render();
+    }catch(err){ alert('파일을 읽을 수 없습니다. 올바른 저장 파일인지 확인해주세요.'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';  // allow reloading the same file
 }
 ['siteName','siteSub','notes'].forEach(id=>{
   document.addEventListener('input', e=>{ if(e.target.id===id) render(); });
